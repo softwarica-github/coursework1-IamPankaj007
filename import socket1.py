@@ -1,101 +1,144 @@
-import socket
-import threading
-from queue import Queue
-from ipaddress import IPv4Network
 import tkinter as tk
 from tkinter import messagebox, simpledialog, scrolledtext
+import socket
+import logging
 
-# Define COMMON_PORTS at the top level of the script
-COMMON_PORTS = {
-    21: 'FTP',
-    22: 'SSH',
-    23: 'TELNET',
-    25: 'SMTP',
-    53: 'DNS',
-    80: 'HTTP',
-    110: 'POP3',
-    143: 'IMAP',
-    443: 'HTTPS',
-    445: 'SMB',
-    3306: 'MySQL',
-    3389: 'RDP',
-    5800: 'VNC',
-    5900: 'VNC'
-}
+# Setup logging
+logging.basicConfig(filename='port_checker.log', level=logging.INFO,
+                    format='%(asctime)s [%(levelname)s]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-# Function to create a queue with the ports to scan
-def get_port_queue():
-    port_queue = Queue()
-    for port in COMMON_PORTS:
-        port_queue.put(port)
-    return port_queue
+# Utility functions
+def get_well_known_ports():
+    """Returns a dictionary of well-known ports and their services."""
+    return {
+      1: "TCP Port Service Multiplexer (TCPMUX)",
+        5: "Remote Job Entry (RJE)",
+        7: "ECHO",
+        18: "Message Send Protocol (MSP)",
+        20: "FTP -- Data",
+        21: "FTP -- Control",
+        22: "SSH Remote Login Protocol",
+        23: "Telnet",
+        25: "Simple Mail Transfer Protocol (SMTP)",
+        29: "MSG ICP",
+        37: "Time",
+        42: "Host Name Server (Nameserv)",
+        43: "WhoIs",
+        49: "Login Host Protocol (Login)",
+        53: "Domain Name System (DNS)",
+        69: "Trivial File Transfer Protocol (TFTP)",
+        70: "Gopher Services",
+        79: "Finger",
+        80: "HTTP",
+        103: "X.400 Standard",
+        108: "SNA Gateway Access Server",
+        109: "POP2",
+        110: "POP3",
+        115: "Simple File Transfer Protocol (SFTP)",
+        118: "SQL Services",
+        119: "Newsgroup (NNTP)",
+        137: "NetBIOS Name Service",
+        139: "NetBIOS Datagram Service",
+        143: "Interim Mail Access Protocol (IMAP)",
+        150: "NetBIOS Session Service",
+        156: "SQL Server",
+        161: "SNMP",
+        179: "Border Gateway Protocol (BGP)",
+        190: "Gateway Access Control Protocol (GACP)",
+        194: "Internet Relay Chat (IRC)",
+        197: "Directory Location Service (DLS)",
+        389: "Lightweight Directory Access Protocol (LDAP)",
+        396: "Novell Netware over IP",
+        443: "HTTPS",
+        444: "Simple Network Paging Protocol (SNPP)",
+        445: "Microsoft-DS",
+        458: "Apple QuickTime",
+        465: "SMTP over TLS/SSL (SMTPS)",
+        546: "DHCP Client",
+        547: "DHCP Server",
+        563: "SNEWS",
+        # ... you can continue to add other ports as needed
+    }
 
-# AdvancedNetworkScanner class definition
-# ... [include your AdvancedNetworkScanner class code here]
+def parse_ports(input_str):
+    """Parse a string of ports and ranges into a list of individual ports."""
+    ports = set()
+    parts = input_str.split(',')
+    for part in parts:
+        if '-' in part:
+            start, end = map(int, part.split('-'))
+            ports.update(range(start, end + 1))
+        else:
+            ports.add(int(part.strip()))
+    return ports
 
-# GUI Application Class
-class NetworkScannerApp(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Network Scanner")
-        self.geometry("800x600")
+def banner_grabbing(host, port):
+    """Attempts to grab the banner for the specified host and port."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect((host, port))
+            sock.send(b"GET / HTTP/1.1\r\nHost: " + host.encode() + b"\r\n\r\n")
+            banner = sock.recv(1024).decode('utf-8', 'ignore')
+            return banner
+    except socket.error as e:
+        logging.error(f"Error while grabbing banner for port {port}: {e}")
+        return "Unable to grab banner"
 
-        # Text area for results
-        self.result_area = scrolledtext.ScrolledText(self, state='disabled', height=30, width=90)
-        self.result_area.pack(pady=10)
+def scan_port(ip, port):
+    """Scan a single port on a given IP."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex((ip, port))
+        if result == 0:
+            return f"Port {port}: Open"
+        else:
+            return f"Port {port}: Closed"
+    except socket.error as e:
+        return f"Port {port}: Error {e}"
+    finally:
+        sock.close()
 
-        # Menu options
-        menu_bar = tk.Menu(self)
-        self.config(menu=menu_bar)
+# GUI Application
+class PortScannerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Port Scanner")
+        self.create_widgets()
 
-        # File menu
-        file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="New Scan", command=self.prompt_new_scan)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.exit_app)
-        menu_bar.add_cascade(label="File", menu=file_menu)
+    def create_widgets(self):
+        # Login button
+        self.login_button = tk.Button(self.root, text="Login", command=self.login)
+        self.login_button.pack(pady=10)
 
-        # Help menu
-        help_menu = tk.Menu(menu_bar, tearoff=0)
-        help_menu.add_command(label="About", command=self.show_about)
-        menu_bar.add_cascade(label="Help", menu=help_menu)
+        # Scan button (initially disabled until user logs in)
+        self.scan_button = tk.Button(self.root, text="Start Scan", command=self.start_scan, state=tk.DISABLED)
+        self.scan_button.pack(pady=10)
 
-    def prompt_new_scan(self):
-        network = simpledialog.askstring("Input", "Enter the network to scan (e.g., 192.168.1.0/24):", parent=self)
-        if network:
-            self.run_new_scan(network)
+        # Results area
+        self.results_text = scrolledtext.ScrolledText(self.root, height=10, width=50)
+        self.results_text.pack(pady=10)
 
-    def run_new_scan(self, network):
-        self.result_area.configure(state='normal')
-        self.result_area.delete(1.0, tk.END)
-        self.result_area.insert(tk.END, f"Scanning the network {network}...\n")
-        self.result_area.configure(state='disabled')
-        
-        port_queue = get_port_queue()
-        scanner = AdvancedNetworkScanner(network, port_queue)
-        active_hosts = scanner.run_scan()
-        self.display_results(active_hosts)
+    def login(self):
+        password = simpledialog.askstring("Password", "Enter password:", show='*')
+        if password == "admin":
+            messagebox.showinfo("Login Success", "You are now logged in.")
+            self.scan_button['state'] = tk.NORMAL
+        else:
+            messagebox.showerror("Login Failed", "Incorrect password.")
 
-    def display_results(self, active_hosts):
-        self.result_area.configure(state='normal')
-        for host, ports in active_hosts.items():
-            self.result_area.insert(tk.END, f"Host: {host}\n")
-            for port, service in ports:
-                self.result_area.insert(tk.END, f"  Port: {port} - Service: {service}\n")
-        self.result_area.configure(state='disabled')
+    def start_scan(self):
+        self.results_text.delete(1.0, tk.END)
+        ip = simpledialog.askstring("IP Address", "Enter IP address to scan:")
+        ports_str = simpledialog.askstring("Ports", "Enter port numbers to scan (e.g., '21-25, 80, 443'):")
+        if ip and ports_str:
+            ports_to_scan = parse_ports(ports_str)
+            for port in ports_to_scan:
+                result = scan_port(ip, port)
+                self.results_text.insert(tk.END, f"{result}\n")
 
-    def exit_app(self):
-        if messagebox.askokcancel("Quit", "Do you want to exit the application?"):
-            self.destroy()
-
-    def show_about(self):
-        messagebox.showinfo("About", "Network Scanner\nVersion 1.0")
-
-# Function to start the GUI application
-def start_gui_app():
-    app = NetworkScannerApp()
-    app.mainloop()
-
-# Run the GUI app
 if __name__ == "__main__":
-    start_gui_app()
+    root = tk.Tk()
+    app = PortScannerApp(root)
+    root.mainloop()
