@@ -3,15 +3,13 @@ from tkinter import messagebox, simpledialog, scrolledtext
 import socket
 import logging
 
-# Setup logging
 logging.basicConfig(filename='port_checker.log', level=logging.INFO,
                     format='%(asctime)s [%(levelname)s]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-# Utility functions
 def get_well_known_ports():
     """Returns a dictionary of well-known ports and their services."""
     return {
-      1: "TCP Port Service Multiplexer (TCPMUX)",
+        1: "TCP Port Service Multiplexer (TCPMUX)",
         5: "Remote Job Entry (RJE)",
         7: "ECHO",
         18: "Message Send Protocol (MSP)",
@@ -100,7 +98,6 @@ def scan_port(ip, port):
     finally:
         sock.close()
 
-# GUI Application
 class PortScannerApp:
     def __init__(self, root):
         self.root = root
@@ -108,15 +105,12 @@ class PortScannerApp:
         self.create_widgets()
 
     def create_widgets(self):
-        # Login button
         self.login_button = tk.Button(self.root, text="Login", command=self.login)
         self.login_button.pack(pady=10)
 
-        # Scan button (initially disabled until user logs in)
         self.scan_button = tk.Button(self.root, text="Start Scan", command=self.start_scan, state=tk.DISABLED)
         self.scan_button.pack(pady=10)
 
-        # Results area
         self.results_text = scrolledtext.ScrolledText(self.root, height=10, width=50)
         self.results_text.pack(pady=10)
 
